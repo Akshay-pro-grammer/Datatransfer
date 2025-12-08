@@ -1,0 +1,78 @@
+t express = require("express");
+const fs = require("fs");
+const path = require("path");
+const bonjour = require("bonjour")();
+
+const app = express();
+const PORT = 9000;
+const MEDIA_DIR = path.join(__dirname, "videos");
+
+// --- Scan media folder ---
+function getMediaList() {
+  const files = fs.readdirSync(MEDIA_DIR);
+    return files.map((file, index) => ({
+        id: index,
+	    name: file,
+	      }));
+	      }
+
+	      // --- API: Return media list ---
+	      app.get("/media", (req, res) => {
+	        const list = getMediaList();
+		  res.json(list);
+		  });
+
+		  // --- API: Stream video ---
+		  app.get("/stream/:id", (req, res) => {
+		    const list = getMediaList();
+		      const fileMeta = list[req.params.id];
+
+		        if (!fileMeta) {
+			    return res.status(404).send("File not found");
+			      }
+
+			        const filePath = path.join(MEDIA_DIR, fileMeta.name);
+				  const stat = fs.statSync(filePath);
+				    const fileSize = stat.size;
+
+				      const range = req.headers.range;
+
+				        if (!range) {
+					    res.status(416).send("Range header missing");
+					        return;
+						  }
+
+						    const CHUNK_SIZE = 1 * 1e6; // 1MB chunks
+						      const start = Number(range.replace(/\D/g, ""));
+						        const end = Math.min(start + CHUNK_SIZE, fileSize - 1);
+
+							  const headers = {
+							      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+							          "Accept-Ranges": "bytes",
+								      "Content-Length": end - start + 1,
+								          "Content-Type": "video/mp4",
+									    };
+
+									      res.writeHead(206, headers);
+
+									        const stream = fs.createReadStream(filePath, { start, end });
+										  stream.pipe(res);
+										  });
+
+										  // --- Start Server ---
+										  app.listen(PORT, () => {
+										    console.log(`Media Server running at http://localhost:${PORT}`);
+										    });
+
+										    // --- mDNS / Bonjour Broadcast ---
+										    bonjour.publish({
+										      name: "LaptopMediaServer",
+										        type: "laptopmedia",
+											  port: PORT,
+											    txt: {
+											        deviceId: "my-laptop-123",
+												  },
+												  });
+
+												  console.log("mDNS broadcast started: _laptopmedia._tcp.local");
+												  
