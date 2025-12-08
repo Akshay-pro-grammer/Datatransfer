@@ -1,0 +1,58 @@
+t express = require("express");
+const fs = require("fs");
+const path = require("path");
+const bonjour = require("bonjour")();
+
+const app = express();
+const PORT = 9000;
+const MEDIA_DIR = path.join(__dirname, "videos");
+
+function getMediaList() {
+  const files = fs.readdirSync(MEDIA_DIR);
+    return files.map((file, index) => ({
+        id: index,
+	    name: file,
+	      }));
+	      }
+
+	      app.get("/media", (req, res) => {
+	        res.json(getMediaList());
+		});
+
+		app.get("/stream/:id", (req, res) => {
+		  const list = getMediaList();
+		    const file = list[req.params.id];
+
+		      if (!file) return res.status(404).send("Not found");
+
+		        const filePath = path.join(MEDIA_DIR, file.name);
+			  const stat = fs.statSync(filePath);
+			    const range = req.headers.range;
+
+			      if (!range) return res.status(416).send("Range not found");
+
+			        const fileSize = stat.size;
+				  const CHUNK = 10 * 1024 * 1024;
+				    const start = Number(range.replace(/\D/g, ""));
+				      const end = Math.min(start + CHUNK, fileSize - 1);
+
+				        const headers = {
+					    "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+					        "Accept-Ranges": "bytes",
+						    "Content-Length": end - start + 1,
+						        "Content-Type": "video/mp4"
+							  };
+
+							    res.writeHead(206, headers);
+							      fs.createReadStream(filePath, { start, end }).pipe(res);
+							      });
+
+							      // broadcast as _http._tcp.local
+							      bonjour.publish({
+							        name: "LaptopMediaServer",
+								  type: "http",
+								    port: PORT
+								    });
+
+								    console.log("Media server running & advertised as _http._tcp.local");
+								    app.listen(PORT);
