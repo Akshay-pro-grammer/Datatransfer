@@ -1,0 +1,405 @@
+Great — here is a clean, professional, presentation-ready architecture showing exactly how the laptop app, WebOS TV app, local network, and remote tunnel work together.
+I’ll break it into high-level, detailed, and workflow sections so you can directly share with your team lead.
+
+
+---
+
+⭐ High-Level Architecture Overview
+
+Your system has 4 major components:
+
+1. Laptop Media Server Application
+
+Scans media folder
+
+Serves videos over HTTP
+
+Connects to discovery service
+
+Maintains a secure outbound tunnel for remote access
+
+
+
+2. Discovery Layer
+
+mDNS (local network discovery)
+
+Backend registry (for remote access)
+
+
+
+3. Tunnel / Cloud Relay Server (Lightweight)
+
+Provides a global domain for each laptop app
+
+Forwards requests -> laptop app
+
+
+
+4. WebOS Media Discovery App
+
+Detects laptops on LAN
+
+Detects remote laptops via registry
+
+Streams videos from laptop directly or via tunnel
+
+
+
+
+
+---
+
+🧱 Component Architecture (Detailed)
+
+Below is the detailed breakdown of each module.
+
+
+---
+
+1. Laptop Media Server Application
+
+1.1 Responsibilities
+
+Folder selection (user chooses media directory)
+
+Media scanning (build list of files, metadata)
+
+Serve media via HTTP:
+
+/media → list of files
+
+/stream/<id> → video byte stream
+
+
+Local network discovery
+
+Advertise itself via mDNS
+
+
+Remote access:
+
+Register with central registry service
+
+Establish always-on outbound tunnel
+
+
+Simple UI for user (Electron OR small Web UI)
+
+
+
+---
+
+1.2 Internal Architecture
+
+(A) File Scanner Module
+
+Periodically scans the configured folder
+
+Builds metadata:
+
+filename, size, duration (optional), thumbnail (optional)
+
+
+
+(B) HTTP API Server Module
+
+Serves:
+
+GET /media
+GET /stream/<fileId>
+GET /thumbnail/<fileId>   [optional]
+
+(C) Discovery Module (Local)
+
+Uses mDNS/Bonjour to announce:
+
+Service Name: LaptopMediaServer
+Port: 9000
+TXT: { deviceId: xyz, hostname: abc }
+
+TV sees this broadcast → knows laptop exists.
+
+(D) Tunnel / Remote Access Module
+
+Laptop app establishes a secure outbound connection:
+
+Laptop → Tunnel Server
+
+This tunnel exposes:
+
+https://<unique-id>.media.lg.com
+
+All remote TV requests go through tunnel → forwarded to local app.
+
+
+---
+
+2. Discovery Layer
+
+Two parts:
+
+
+---
+
+2.1 Local Network Discovery (mDNS)
+
+TV sends a multicast query:
+
+Who has LaptopMediaServer?
+
+Laptop responds:
+
+I am here → 192.168.0.12:9000
+
+TV stores this as a local source.
+
+Advantages:
+
+No setup needed
+
+Auto-discovery like AirPlay/Chromecast
+
+Extremely fast
+
+
+
+---
+
+2.2 Remote Discovery (Cloud Registry)
+
+Laptop app registers itself:
+
+POST /register
+{
+  deviceId: "123ABC",
+    tunnelUrl: "https://123abc.media.lg.com"
+    }
+
+    Registry stores laptop ID + tunnel URL.
+
+    TV logs into Media Discovery → pulls list of registered devices.
+
+
+    ---
+
+    3. Tunnel Server (Cloud Relay)
+
+    This is simplest part but very powerful.
+
+    Responsibilities:
+
+    Hold an open WebSocket or TCP connection with laptop app
+
+    Expose a global HTTPS domain
+
+    Forward incoming TV requests to laptop app
+
+    Performs encryption + rate limiting
+
+
+    Example Flow:
+
+    TV → https://123abc.media.lg.com/media → Tunnel
+    Tunnel → forward to laptop’s WebSocket
+    Laptop responds → tunnel sends back to TV
+
+    This solves:
+
+    NAT
+
+    Dynamic IP
+
+    Port forwarding
+
+    Network security
+
+
+
+    ---
+
+    4. WebOS Media Discovery Application
+
+    This is where your team lead wants visible functionality.
+
+
+    ---
+
+    4.1 Responsibilities
+
+    Discover local laptop servers using mDNS
+
+    Fetch remote laptop servers from registry
+
+    List them:
+
+    “Local Devices”
+
+    “Remote Devices”
+
+
+    Fetch:
+
+    GET /media
+
+    Display thumbnails/titles
+
+    Stream:
+
+    GET /stream/<fileId>
+
+    Support:
+
+    Resume
+
+    Seek
+
+    Different playback quality (optional)
+
+
+
+
+    ---
+
+    🎯 End-to-End Workflow (How Everything Works)
+
+
+    ---
+
+    🟦 Scenario 1 — TV & Laptop on SAME Network
+
+    1. Laptop app runs → broadcasts mDNS
+
+
+    2. TV starts Media Discovery → listens for mDNS
+
+
+    3. TV detects laptop IP + port
+
+
+    4. TV requests:
+
+    http://192.168.x.x:9000/media
+
+
+    5. TV displays list of videos
+
+
+    6. User taps video → TV starts streaming via HTTP:
+
+    http://192.168.x.x:9000/stream/movie1.mp4
+
+
+
+    ✔ No cloud
+    ✔ Fast
+    ✔ Large files stream easily
+    ✔ Like Plex on LAN
+
+
+    ---
+
+    🟩 Scenario 2 — TV & Laptop NOT on Same Network
+
+    1. Laptop app → opens tunnel
+
+
+    2. Tunnel gives URL:
+
+    https://123abc.media.lg.com
+
+
+    3. Laptop registers tunnel URL in registry
+
+
+    4. TV opens Media Discovery → retrieves remote devices
+
+
+    5. User selects laptop
+
+
+    6. TV requests:
+
+    https://123abc.media.lg.com/media
+
+
+    7. Tunnel forwards → Laptop app → returns media list
+
+
+    8. TV streams:
+
+    https://123abc.media.lg.com/stream/movie1.mp4
+
+
+
+    ✔ Encrypted
+    ✔ Secure
+    ✔ No port forwarding
+    ✔ Same UX as LAN mode
+
+
+    ---
+
+    🔐 Security Model
+
+    Tunnel uses HTTPS
+
+    Laptop only accepts requests that come from authenticated TVs
+
+    TV authenticates using OAuth token / session token
+
+    Tunnel server rate limits requests
+
+    Media never stored in cloud — always served from laptop
+
+
+
+    ---
+
+    🧩 Architecture Diagram (Text Version)
+
+    You can paste this into a document:
+
+    ┌──────────────────────────────┐
+                    │     Cloud Registry Server    │
+		                    │ (deviceId <-> tunnel URL)    │
+				                    └──────────────┬───────────────┘
+						                                   │
+										                             Register
+													                                    │
+																	               ┌───────────────────▼──────────────────┐
+																		                  │          Tunnel Server               │
+																				             │ (Public domain → laptop tunnel)      │
+																					                └───────────▲───────────────┬─────────┘
+																							                       │ Tunnel        │ HTTPS
+																									                              │ Connection    │ Requests
+																												          ┌──────────────────┴───────────────▼───────────────────┐
+																													      │               Laptop Media Server App                 │
+																													          │-------------------------------------------------------│
+																														      │ Scanner | HTTP Server | mDNS | Tunnel Client | Auth   │
+																														          └─────────▲─────────────┬──────────────▲───────────────┘
+																															                │ LAN HTTP    │ mDNS Announce│
+																																	              │             │              │
+																																		            ┌───────┴─────────────▼──────────────┴──────────┐
+																																			          │           WebOS TV Media Discovery App         │
+																																				        │------------------------------------------------│
+																																					      │ Local Mode: http://LAN-IP:9000/...             │
+																																					            │ Remote Mode: https://tunnelURL/...             │
+																																						          └────────────────────────────────────────────────┘
+
+
+																																							  ---
+
+																																							  🔥 Want the next step?
+
+																																							  I can provide:
+
+																																							  ✅ API Specification
+																																							  ✅ Data format for /media
+																																							  ✅ Enact (WebOS) frontend UI wireframes
+																																							  ✅ Laptop app code skeleton (Node/Python/C++)
+																																							  ✅ Discovery protocol (with working mDNS code)
+																																							  ✅ Tunnel server design (Node or Go)
+
+																																							  Which one should I generate next?
+
